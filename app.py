@@ -1,49 +1,44 @@
-from flask import Flask, request, jsonify, send_file
-import pandas as pd
 import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+import json
 
-app = Flask(__name__)
+app = FastAPI()
 
-# Define the CSV file path
-csv_file = 'data.csv'
+# Store connected WebSocket clients
+active_connections = []
 
-# Check if the CSV file exists, if not create one with headers
-if not os.path.exists(csv_file):
-    df = pd.DataFrame(columns=["Unique ID", "Name", "Longitude", "Latitude", "Floor"])
-    df.to_csv(csv_file, index=False)
+# Define the data model for incoming data
+class LocationData(BaseModel):
+    name: str
+    uniqueID: str
+    floor: int
+    latitude: float
+    longitude: float
 
-@app.route('/submit-data', methods=['POST'])
-def submit_data():
+@app.websocket("/track")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    active_connections.append(websocket)
+    
     try:
-        # Get the incoming JSON data from the Android app
-        data = request.json
-        
-        # Extract the details
-        unique_id = data.get("id")
-        name = data.get("name")
-        longitude = data.get("longitude")
-        latitude = data.get("latitude")
-        floor = data.get("floor")
-        
-        # Append the data to the CSV file
-        new_data = pd.DataFrame([[unique_id, name, longitude, latitude, floor]], 
-                                columns=["Unique ID", "Name", "Longitude", "Latitude", "Floor"])
-        new_data.to_csv(csv_file, mode='a', header=False, index=False)
-        
-        # Return a success response
-        return jsonify({"message": "Data received successfully"}), 200
+        while True:
+            data = await websocket.receive_text()
+            location_data = json.loads(data)
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+            # Broadcast the location data to all connected clients
+            for connection in active_connections:
+                await connection.send_text(data)
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
 
-# Route to serve the CSV file
-@app.route('/get-csv', methods=['GET'])
-def get_csv():
-    # Check if the file exists before serving
-    if os.path.exists(csv_file):
-        return send_file(csv_file, as_attachment=True, attachment_filename='data.csv')
-    else:
-        return jsonify({"error": "CSV file not found"}), 404
+@app.get("/")
+async def get():
+    return HTMLResponse(open("index.html").read())
 
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    import uvicorn
+    
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
