@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Tracking</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([0, 0], 2); // Initial view
+
+        // Add OpenStreetMap tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+        }).addTo(map);
+
+        const markers = {};
+
+        // Connect to WebSocket
+        const socket = new WebSocket('ws://your-fastapi-url/track'); // Replace with your FastAPI URL
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            // Update the marker on the map
+            const latLng = [data.latitude, data.longitude];
+            if (markers[data.uniqueID]) {
+                markers[data.uniqueID].setLatLng(latLng);
+            } else {
+                markers[data.uniqueID] = L.marker(latLng).addTo(map).bindPopup(data.name);
+            }
+
+            // Adjust the map view to the new marker position
+            map.setView(latLng);
+        };
+    </script>
+</body>
+</html>
